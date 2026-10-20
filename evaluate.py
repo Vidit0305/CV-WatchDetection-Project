@@ -193,7 +193,8 @@ def evaluate_model(
     print(report_str)
 
     print("Confusion Matrix:")
-    print(f"{'True \\ Pred':<15} | " + " | ".join(f"{c:<10}" for c in class_names))
+    col_header = "True / Pred"
+    print(f"{col_header:<15} | " + " | ".join(f"{c:<10}" for c in class_names))
     print("-" * 55)
     for i, row in enumerate(cm):
         print(f"{class_names[i]:<15} | " + " | ".join(f"{val:<10}" for val in row))

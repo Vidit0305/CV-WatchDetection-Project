@@ -6,6 +6,7 @@ and prevents data leakage across train/validation/test splits using perceptual d
 
 import argparse
 import os
+import random
 import shutil
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple
@@ -215,17 +216,61 @@ def report_statistics(base_dir: str = "dataset") -> Dict[str, Dict[str, int]]:
     return counts
 
 
+def rebalance_dataset(base_dir: str = "dataset", val_count: int = 3, test_count: int = 3) -> None:
+    """
+    Rebalances images within each class to ensure each split has at least val_count
+    and test_count images, with the remainder in train.
+    """
+    print("\n" + "=" * 70)
+    print("STEP 2.5: Rebalancing Splits to Guarantee Sufficient Val & Test Samples")
+    print("=" * 70)
+
+    random.seed(42)
+    for cls in CLASSES:
+        all_class_files = []
+        for split in SPLITS:
+            folder = os.path.join(base_dir, split, cls)
+            if os.path.isdir(folder):
+                for f in sorted(os.listdir(folder)):
+                    if os.path.splitext(f)[1].lower() in VALID_EXTENSIONS:
+                        all_class_files.append(os.path.join(folder, f))
+
+        random.shuffle(all_class_files)
+        total = len(all_class_files)
+        if total < (val_count + test_count + 1):
+            print(f"  [WARN] Category {cls} has only {total} images. Skipping rebalance.")
+            continue
+
+        test_files = all_class_files[:test_count]
+        val_files = all_class_files[test_count:test_count + val_count]
+        train_files = all_class_files[test_count + val_count:]
+
+        # Move files to appropriate destinations
+        for split, flist in [("test", test_files), ("validation", val_files), ("train", train_files)]:
+            dest_dir = os.path.join(base_dir, split, cls)
+            os.makedirs(dest_dir, exist_ok=True)
+            for fpath in flist:
+                dest_path = os.path.join(dest_dir, os.path.basename(fpath))
+                if fpath != dest_path:
+                    shutil.move(fpath, dest_path)
+
+        print(f"  [{cls.upper()}] Total: {total} -> Train: {len(train_files)} | Val: {len(val_files)} | Test: {len(test_files)}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prepare, clean, and validate watch dataset.")
     parser.add_argument("--dataset_dir", type=str, default="dataset", help="Root dataset directory")
     parser.add_argument("--quarantine", action="store_true", default=True, help="Quarantine corrupt files")
     parser.add_argument("--fix_leakage", action="store_true", default=True, help="Remove duplicate leakage images")
+    parser.add_argument("--rebalance", action="store_true", help="Ensure balanced distribution across splits")
     parser.add_argument("--threshold", type=int, default=3, help="Hamming distance for duplicate detection")
     args = parser.parse_args()
 
     check_and_create_structure(args.dataset_dir)
     valid_files = scan_and_clean_images(args.dataset_dir, remove_corrupt=args.quarantine)
     detect_data_leakage(valid_files, hamming_threshold=args.threshold, remove_leakage=args.fix_leakage)
+    if args.rebalance:
+        rebalance_dataset(args.dataset_dir, val_count=3, test_count=3)
     report_statistics(args.dataset_dir)
 
 

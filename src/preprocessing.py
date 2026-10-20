@@ -30,6 +30,8 @@ def preprocess_frame(
 ) -> np.ndarray:
     """
     Prepares a single frame or crop for MobileNetV2 model inference.
+    Since the Keras model includes tf.keras.applications.mobilenet_v2.preprocess_input
+    in its architecture, inputs are resized RGB float32 images in [0.0, 255.0].
     
     Args:
         frame: OpenCV image array (H, W, C).
@@ -37,7 +39,7 @@ def preprocess_frame(
         is_bgr: True if image is in OpenCV BGR format, False if RGB.
 
     Returns:
-        np.ndarray: Batch array with shape (1, height, width, 3), float32 in [-1, 1].
+        np.ndarray: Batch array with shape (1, height, width, 3), float32 in [0, 255].
     """
     if frame is None or frame.size == 0:
         raise ValueError("Invalid or empty frame provided to preprocess_frame.")
@@ -54,11 +56,11 @@ def preprocess_frame(
     else:
         resized = rgb
 
-    # Apply MobileNetV2 normalization
-    normalized = mobilenetv2_preprocess(resized)
+    # Float32 in range [0.0, 255.0] (the internal Keras model layer handles [-1, 1] scaling)
+    img_float = resized.astype(np.float32)
 
     # Add batch dimension: (1, 224, 224, 3)
-    batch = np.expand_dims(normalized, axis=0)
+    batch = np.expand_dims(img_float, axis=0)
     return batch
 
 

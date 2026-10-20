@@ -99,6 +99,65 @@ def draw_rounded_banner(
     img[y:y + h, x:x + w] = blended
 
 
+def draw_floating_badge(
+    img: np.ndarray,
+    text: str,
+    color: Tuple[int, int, int],
+    center_x: int,
+    top_y: int = 35,
+    font_scale: float = 0.85,
+    thickness: int = 2,
+    alpha: float = 0.85,
+) -> None:
+    """
+    Renders an elegant, floating glassmorphic pill badge with accent border.
+    Displays ONLY the essential recognized watch category and confidence or uncertainty.
+    """
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_w, text_h), _ = cv2.getTextSize(text, font, font_scale, thickness)
+
+    pad_x = 28
+    pad_y = 14
+    box_w = text_w + (pad_x * 2)
+    box_h = text_h + (pad_y * 2)
+    x1 = int(center_x - box_w / 2)
+    y1 = int(top_y)
+    x2 = x1 + box_w
+    y2 = y1 + box_h
+
+    h_img, w_img = img.shape[:2]
+    x1 = max(0, min(x1, w_img - 1))
+    y1 = max(0, min(y1, h_img - 1))
+    x2 = max(1, min(x2, w_img))
+    y2 = max(1, min(y2, h_img))
+
+    # Translucent dark pill background
+    roi = img[y1:y2, x1:x2].copy()
+    bg = np.full(roi.shape, (18, 18, 22), dtype=np.uint8)
+    blended = cv2.addWeighted(bg, alpha, roi, 1.0 - alpha, 0)
+    img[y1:y2, x1:x2] = blended
+
+    # Sleek accent border
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, 2, lineType=cv2.LINE_AA)
+
+    # Centered text
+    text_x = x1 + pad_x
+    text_y = y1 + pad_y + text_h
+    cv2.putText(img, text, (text_x, text_y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+
+def draw_minimal_hint(
+    img: np.ndarray,
+    text: str,
+    x: int,
+    y: int,
+    font_scale: float = 0.50,
+) -> None:
+    """Draws a subtle, non-intrusive keyboard helper hint."""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(img, text, (x, y), font, font_scale, (170, 170, 180), 1, cv2.LINE_AA)
+
+
 def draw_meter_bar(
     img: np.ndarray,
     x: int,

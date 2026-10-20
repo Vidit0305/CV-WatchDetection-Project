@@ -1,0 +1,18 @@
+# Python virtual environments & bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary IDE & OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Capture output folder (optional)
+# captures/*.jpg
+
+# Log files
+*.log
