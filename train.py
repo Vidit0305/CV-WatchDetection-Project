@@ -176,10 +176,9 @@ def train(
         print("\n[DATASET NOT READY] The training or validation folders are missing images.")
         print(f"Current Counts: {counts}")
         print("\nPlease follow these steps to prepare your dataset:")
-        print("  1. Run 'python collect_data.py' to easily capture watch photos with your webcam.")
-        print("  2. Or run 'python download_samples.py' to download CC0 open-license sample watches.")
-        print("  3. Run 'python prepare_dataset.py' to validate integrity and check for duplicates.")
-        print("  4. Once your dataset is populated, rerun 'python train.py'.\n")
+        print("  1. Place watch images into dataset/train/, dataset/validation/, dataset/test/.")
+        print("  2. Run 'python prepare_dataset.py' to validate integrity and prevent data leakage.")
+        print("  3. Once your dataset is populated, rerun 'python train.py'.\n")
         sys.exit(1)
 
     print(f"\n[INFO] Dataset validated. Class counts:")

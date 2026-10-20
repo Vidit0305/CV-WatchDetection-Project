@@ -107,7 +107,7 @@ def evaluate_model(
         print("    dataset/test/analog/")
         print("    dataset/test/digital/")
         print("    dataset/test/smartwatch/")
-        print("\nOr run 'python collect_data.py' / 'python download_samples.py' to acquire test images.\n")
+        print("\nPlease populate dataset/test/ before running evaluation.\n")
         sys.exit(1)
 
     # 3. Load Labels

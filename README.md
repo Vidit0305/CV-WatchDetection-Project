@@ -28,8 +28,6 @@ CV-WatchDetection-Project/
 ├── train.py                    # MobileNetV2 transfer learning training pipeline
 ├── evaluate.py                 # Independent test set evaluation and confusion matrix
 ├── prepare_dataset.py          # Integrity checking, corruption removal & leakage prevention
-├── collect_data.py             # Interactive webcam studio to capture watch photos
-├── download_samples.py         # Curated open-access Wikimedia Commons sample downloader
 ├── requirements.txt            # Project dependencies
 ├── README.md                   # Complete documentation and setup guide
 ├── .gitignore                  # Git ignore rules for virtualenvs and temporary files
@@ -59,7 +57,7 @@ CV-WatchDetection-Project/
 └── src/                        # Core modular engine components
     ├── __init__.py
     ├── preprocessing.py        # Frame normalization and safe ROI cropping
-    ├── inference.py            # WatchClassifier engine with temporal smoothing
+    ├── inference.py            # High-performance async WatchClassifier engine
     └── utils.py                # OpenCV HUD drawing, dHash, and terminal notifier
 ```
 
@@ -78,7 +76,7 @@ Ensure your terminal working directory is inside `CV-WatchDetection-Project`.
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Or using uv (recommended for ultra-fast setup):
+# Or using uv:
 uv venv --python 3.11 .venv
 source .venv/bin/activate
 ```
@@ -99,25 +97,13 @@ dataset/<split>/<category>/
 ```
 Where `<split>` is `train`, `validation`, or `test`, and `<category>` is `analog`, `digital`, or `smartwatch`.
 
-### Option A: Collect Your Own Watch Photos (Recommended)
+### Adding Images
 
-Run the interactive webcam collection studio:
-```bash
-python collect_data.py
-```
-- Hold your watch inside the on-screen target box.
-- Press `1` to capture an **Analog** watch image.
-- Press `2` to capture a **Digital** watch image.
-- Press `3` to capture a **Smartwatch** image.
-- Press `B` to toggle **Burst Mode** (captures continuously every 0.8s).
-- Images are automatically assigned to `train` (70%), `validation` (15%), or `test` (15%).
-
-### Option B: Download Legally Usable Sample Images
-
-To initialize a sample dataset of open-access CC0 / Creative Commons watch photographs from Wikimedia Commons:
-```bash
-python download_samples.py --per_class 20
-```
+1. Place your watch photographs directly into the category folders:
+   - `dataset/train/analog/`, `dataset/validation/analog/`, `dataset/test/analog/`
+   - `dataset/train/digital/`, `dataset/validation/digital/`, `dataset/test/digital/`
+   - `dataset/train/smartwatch/`, `dataset/validation/smartwatch/`, `dataset/test/smartwatch/`
+2. Or use `main.py` and press `S` to capture frames directly into `captures/`.
 
 ### Validate Dataset and Prevent Data Leakage
 

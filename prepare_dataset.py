@@ -208,10 +208,9 @@ def report_statistics(base_dir: str = "dataset") -> Dict[str, Dict[str, int]]:
 
     if total_all == 0:
         print("[NOTICE] Your dataset is currently empty.")
-        print("To collect watch images easily from your webcam, run:")
-        print("    python collect_data.py")
-        print("Or place your photos directly into the class folders:")
-        print("    dataset/train/analog/, dataset/train/digital/, dataset/train/smartwatch/\n")
+        print("Place your watch photos directly into the class folders:")
+        print("    dataset/train/analog/, dataset/train/digital/, dataset/train/smartwatch/")
+        print("Or use 'S' in main.py to capture snapshots to captures/.\n")
 
     return counts
 
