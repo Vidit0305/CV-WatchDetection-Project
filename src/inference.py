@@ -1,7 +1,7 @@
 """
-High-Performance Inference Engine with Asynchronous Threading & Graph Compilation.
-Compiles model execution via @tf.function (reducing inference latency from ~470ms to ~35ms)
-and provides asynchronous threaded inference to keep the camera feed at full 60 FPS.
+High-Performance Watch Classification Engine with Multi-Region Focus & Graph Acceleration.
+Uses @tf.function compiled inference, intelligent multi-candidate spatial scanning,
+responsive rolling-window smoothing, and calibrated uncertainty gating.
 """
 
 import json
@@ -32,18 +32,18 @@ from src.utils import CLASS_DISPLAY_NAMES
 
 class WatchClassifier:
     """
-    Manages model loading, compiled @tf.function inference, background thread processing,
-    temporal prediction smoothing, and uncertainty gating.
+    Manages MobileNetV2 model loading, compiled graph execution, background thread processing,
+    multi-region candidate search, temporal prediction smoothing, and uncertainty gating.
     """
 
     def __init__(
         self,
         model_path: str = "models/watch_classifier_mobilenetv2.keras",
         labels_path: str = "models/class_labels.json",
-        confidence_threshold: float = 0.65,
-        margin_threshold: float = 0.15,
-        history_len: int = 8,
-        min_texture_energy: float = 30.0,
+        confidence_threshold: float = 0.48,
+        margin_threshold: float = 0.08,
+        history_len: int = 5,
+        min_texture_energy: float = 6.0,
         enable_async: bool = True,
     ):
         self.model_path = model_path
@@ -61,7 +61,8 @@ class WatchClassifier:
 
         # Threading state for async execution
         self._lock = threading.Lock()
-        self._pending_patch: Optional[np.ndarray] = None
+        self._pending_frame: Optional[np.ndarray] = None
+        self._pending_roi: Optional[Tuple[int, int, int, int]] = None
         self._latest_result: Optional[Dict[str, Any]] = None
         self._worker_running = True
         self._worker_thread: Optional[threading.Thread] = None
@@ -109,7 +110,7 @@ class WatchClassifier:
         print(f"[INFO] Loading trained model: {self.model_path} ...", flush=True)
         try:
             self.model = tf.keras.models.load_model(self.model_path, compile=False)
-            
+
             # Compile graph step to eliminate eager execution lag (13x speedup)
             @tf.function(reduce_retracing=True)
             def compiled_step(batch):
@@ -138,14 +139,17 @@ class WatchClassifier:
     def _inference_worker_loop(self) -> None:
         """Continuous background worker loop for non-blocking inference."""
         while self._worker_running:
-            patch = None
+            frame = None
+            roi = None
             with self._lock:
-                if self._pending_patch is not None:
-                    patch = self._pending_patch.copy()
-                    self._pending_patch = None
+                if self._pending_frame is not None:
+                    frame = self._pending_frame
+                    roi = self._pending_roi
+                    self._pending_frame = None
+                    self._pending_roi = None
 
-            if patch is not None:
-                result = self._compute_prediction(patch)
+            if frame is not None:
+                result = self._evaluate_multi_region(frame, roi)
                 with self._lock:
                     self._latest_result = result
             else:
@@ -169,44 +173,128 @@ class WatchClassifier:
         if not self.is_model_ready:
             return self._default_empty_result("Model not trained")
 
-        target_patch = crop_roi(frame, roi_bbox) if roi_bbox is not None else frame
-
         with self._lock:
-            self._pending_patch = target_patch
+            self._pending_frame = frame.copy()
+            self._pending_roi = roi_bbox
             if self._latest_result is not None:
                 return self._latest_result
 
         # Fallback to direct synchronous prediction for first frame
-        return self._compute_prediction(target_patch)
+        return self._evaluate_multi_region(frame, roi_bbox)
 
     def predict(
         self,
         frame: np.ndarray,
         roi_bbox: Optional[Tuple[int, int, int, int]] = None,
     ) -> Dict[str, Any]:
-        """Synchronous prediction pass."""
+        """Synchronous prediction pass with multi-region scanning."""
         if not self.is_model_ready:
             return self._default_empty_result("Model not trained")
 
-        target_patch = crop_roi(frame, roi_bbox) if roi_bbox is not None else frame
-        return self._compute_prediction(target_patch)
+        return self._evaluate_multi_region(frame, roi_bbox)
 
-    def _compute_prediction(self, target_patch: np.ndarray) -> Dict[str, Any]:
-        """Core inference and evaluation routine."""
-        # Check scene texture energy (detects plain blank background)
-        gray_patch = cv2.cvtColor(target_patch, cv2.COLOR_BGR2GRAY)
-        texture_energy = compute_frame_texture_energy(gray_patch)
+    def _predict_single_crop(self, patch: np.ndarray) -> Tuple[np.ndarray, float]:
+        """Runs model inference on a single image patch, returning raw probs and texture energy."""
+        gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+        energy = compute_frame_texture_energy(gray)
+        processed = preprocess_frame(patch, target_size=TARGET_IMAGE_SIZE, is_bgr=True)
 
-        # Preprocess matching MobileNetV2 input: RGB float32 in [0, 255]
-        processed = preprocess_frame(target_patch, target_size=TARGET_IMAGE_SIZE, is_bgr=True)
-
-        # Fast graph inference step
         if self._fast_step is not None:
             raw_preds = self._fast_step(processed).numpy()[0]
         else:
             raw_preds = self.model(processed, training=False).numpy()[0]
 
-        # Temporal smoothing
+        return raw_preds, energy
+
+    def _evaluate_multi_region(
+        self,
+        frame: np.ndarray,
+        roi_bbox: Optional[Tuple[int, int, int, int]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Intelligent multi-candidate spatial scanning:
+        1. Evaluates center viewfinder ROI.
+        2. If center ROI is confident (>=0.52), locks on immediately.
+        3. If center ROI is ambiguous or uncertain, scans candidate regions (full frame, right-hand, left-hand).
+        4. Selects the highest-confidence candidate without penalizing off-center presentation.
+        """
+        h_img, w_img = frame.shape[:2]
+
+        candidates: List[Tuple[str, np.ndarray, Optional[Tuple[int, int, int, int]]]] = []
+
+        # 1. Primary: Center Viewfinder ROI
+        if roi_bbox is not None:
+            center_patch = crop_roi(frame, roi_bbox)
+            candidates.append(("reticle", center_patch, roi_bbox))
+
+        # First pass on primary center patch
+        primary_preds = None
+        primary_energy = 0.0
+
+        if candidates:
+            tag, patch, box = candidates[0]
+            primary_preds, primary_energy = self._predict_single_crop(patch)
+            top_prob = float(np.max(primary_preds))
+            sorted_p = np.sort(primary_preds)[::-1]
+            margin = float(sorted_p[0] - sorted_p[1]) if len(sorted_p) > 1 else 1.0
+
+            # If primary center box is clearly confident, use it directly
+            if top_prob >= 0.55 and margin >= 0.10:
+                return self._package_result(primary_preds, primary_energy, active_source="reticle", active_bbox=box)
+
+        # 2. Secondary candidates if center ROI did not decisively capture the watch
+        # Right-hand presentation box
+        rw = int(min(h_img, w_img) * 0.52)
+        rh = rw
+        rx = min(w_img - rw, int(w_img * 0.45))
+        ry = max(0, min(h_img - rh, int(h_img * 0.18)))
+        right_box = (rx, ry, rw, rh)
+        right_patch = crop_roi(frame, right_box)
+
+        # Left-hand presentation box
+        lx = max(0, int(w_img * 0.05))
+        ly = ry
+        left_box = (lx, ly, rw, rh)
+        left_patch = crop_roi(frame, left_box)
+
+        secondary_candidates = [
+            ("fullscreen", frame, None),
+            ("right_hand", right_patch, right_box),
+            ("left_hand", left_patch, left_box),
+        ]
+
+        best_preds = primary_preds
+        best_energy = primary_energy
+        best_top_prob = float(np.max(primary_preds)) if primary_preds is not None else 0.0
+        best_source = "reticle"
+        best_box = roi_bbox
+
+        for tag, patch, box in secondary_candidates:
+            if patch is None or patch.size == 0:
+                continue
+            preds, energy = self._predict_single_crop(patch)
+            top_p = float(np.max(preds))
+            if top_p > best_top_prob:
+                best_top_prob = top_p
+                best_preds = preds
+                best_energy = energy
+                best_source = tag
+                best_box = box
+
+        if best_preds is None:
+            return self._default_empty_result("No visual input")
+
+        return self._package_result(best_preds, best_energy, active_source=best_source, active_bbox=best_box)
+
+    def _package_result(
+        self,
+        raw_preds: np.ndarray,
+        texture_energy: float,
+        active_source: str = "reticle",
+        active_bbox: Optional[Tuple[int, int, int, int]] = None,
+    ) -> Dict[str, Any]:
+        """Applies responsive temporal smoothing and calibrated uncertainty gating."""
+        # Temporal smoothing buffer
         self.prediction_history.append(raw_preds)
         smoothed_preds = np.mean(self.prediction_history, axis=0)
 
@@ -221,23 +309,26 @@ class WatchClassifier:
 
         predicted_class = self.class_labels[top_idx] if top_idx < len(self.class_labels) else "unknown"
 
-        # Multi-factor uncertainty
+        # Calibrated Multi-Factor Uncertainty Gating
         is_uncertain = False
         uncertain_reason = ""
 
-        if texture_energy < self.min_texture_energy:
-            is_uncertain = True
-            uncertain_reason = "Empty / low contrast scene"
-        elif top_prob < self.confidence_threshold:
+        # 1. Low confidence check
+        if top_prob < self.confidence_threshold:
             is_uncertain = True
             uncertain_reason = f"Low confidence ({top_prob * 100:.0f}%)"
-        elif prob_margin < self.margin_threshold:
+        # 2. Ambiguity check: top classes nearly tied
+        elif prob_margin < self.margin_threshold and top_prob < 0.60:
             is_uncertain = True
             uncertain_reason = "Ambiguous features"
+        # 3. Flat blank scene check: only active if model isn't already confident
+        elif texture_energy < self.min_texture_energy and top_prob < 0.75:
+            is_uncertain = True
+            uncertain_reason = "Empty / low contrast scene"
 
         if is_uncertain:
             display_name = "Uncertain"
-            status_text = "Uncertain \u2014 show the watch clearly"
+            status_text = "Uncertain — show the watch clearly"
         else:
             display_name = CLASS_DISPLAY_NAMES.get(predicted_class, predicted_class.title())
             status_text = f"{display_name} ({top_prob * 100:.1f}%)"
@@ -258,6 +349,8 @@ class WatchClassifier:
             "probabilities": probs_dict,
             "status_text": status_text,
             "texture_energy": texture_energy,
+            "active_source": active_source,
+            "active_bbox": active_bbox,
         }
 
     def _default_empty_result(self, reason: str) -> Dict[str, Any]:
@@ -272,6 +365,8 @@ class WatchClassifier:
             "probabilities": {},
             "status_text": reason,
             "texture_energy": 0.0,
+            "active_source": "none",
+            "active_bbox": None,
         }
 
     def close(self) -> None:

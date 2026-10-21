@@ -262,6 +262,8 @@ def main():
     parser.add_argument("--quarantine", action="store_true", default=True, help="Quarantine corrupt files")
     parser.add_argument("--fix_leakage", action="store_true", default=True, help="Remove duplicate leakage images")
     parser.add_argument("--rebalance", action="store_true", help="Ensure balanced distribution across splits")
+    parser.add_argument("--val_count", type=int, default=4, help="Validation samples per class")
+    parser.add_argument("--test_count", type=int, default=4, help="Test samples per class")
     parser.add_argument("--threshold", type=int, default=3, help="Hamming distance for duplicate detection")
     args = parser.parse_args()
 
@@ -269,7 +271,7 @@ def main():
     valid_files = scan_and_clean_images(args.dataset_dir, remove_corrupt=args.quarantine)
     detect_data_leakage(valid_files, hamming_threshold=args.threshold, remove_leakage=args.fix_leakage)
     if args.rebalance:
-        rebalance_dataset(args.dataset_dir, val_count=3, test_count=3)
+        rebalance_dataset(args.dataset_dir, val_count=args.val_count, test_count=args.test_count)
     report_statistics(args.dataset_dir)
 
 

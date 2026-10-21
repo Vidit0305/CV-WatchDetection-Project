@@ -60,9 +60,11 @@ def build_augmentation_layer() -> tf.keras.Sequential:
     return tf.keras.Sequential(
         [
             layers.RandomFlip("horizontal"),
-            layers.RandomRotation(0.12),
-            layers.RandomZoom(0.10),
+            layers.RandomRotation(0.15),
+            layers.RandomZoom(0.12),
             layers.RandomTranslation(0.08, 0.08),
+            layers.RandomBrightness(0.15),
+            layers.RandomContrast(0.15),
         ],
         name="data_augmentation",
     )
@@ -242,14 +244,14 @@ def train(
     )
     cb_early_stop = callbacks.EarlyStopping(
         monitor="val_loss",
-        patience=5,
+        patience=6,
         restore_best_weights=True,
         verbose=1,
     )
     cb_reduce_lr = callbacks.ReduceLROnPlateau(
         monitor="val_loss",
         factor=0.5,
-        patience=2,
+        patience=3,
         min_lr=1e-6,
         verbose=1,
     )

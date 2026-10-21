@@ -78,10 +78,10 @@ def run_webcam(
     camera_index: int = 0,
     model_path: str = "models/watch_classifier_mobilenetv2.keras",
     labels_path: str = "models/class_labels.json",
-    confidence_threshold: float = 0.65,
-    margin_threshold: float = 0.15,
-    history_len: int = 8,
-    min_texture_energy: float = 30.0,
+    confidence_threshold: float = 0.48,
+    margin_threshold: float = 0.08,
+    history_len: int = 5,
+    min_texture_energy: float = 6.0,
     captures_dir: str = "captures",
     window_name: str = "Watch Classifier",
 ) -> None:
@@ -172,6 +172,7 @@ def run_webcam(
                 predicted_class = result["class"]
                 confidence = result["confidence"]
                 is_uncertain = result["is_uncertain"]
+                active_box = result.get("active_bbox")
 
                 # Send update to terminal notifier (only prints on stable transitions)
                 notifier.update(predicted_class, confidence, is_uncertain)
@@ -179,19 +180,21 @@ def run_webcam(
                 predicted_class = None
                 confidence = 0.0
                 is_uncertain = True
+                active_box = None
 
             # -------------------------------------------------------------
             # MINIMALIST HUD (Only Face and Essential Information Visible)
             # -------------------------------------------------------------
 
-            # 1. Subtle, clean center viewfinder reticle
+            # 1. Viewfinder reticle (dynamically locks onto watch region when confident)
             if show_reticle:
                 reticle_color = (
                     (130, 130, 150)
                     if is_uncertain
                     else CLASS_COLORS.get(predicted_class, (200, 200, 200))
                 )
-                draw_corner_rect(frame, roi_bbox, color=reticle_color, thickness=2, corner_len=24)
+                target_box = active_box if (not is_uncertain and active_box is not None) else roi_bbox
+                draw_corner_rect(frame, target_box, color=reticle_color, thickness=2, corner_len=24)
 
             # 2. Top-Center Floating Pill Badge (Pure ASCII to avoid ??? glyphs)
             if not classifier.is_model_ready:
@@ -296,10 +299,10 @@ def main():
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")
     parser.add_argument("--model", type=str, default="models/watch_classifier_mobilenetv2.keras")
     parser.add_argument("--labels", type=str, default="models/class_labels.json")
-    parser.add_argument("--threshold", type=float, default=0.65, help="Confidence threshold")
-    parser.add_argument("--margin", type=float, default=0.15, help="Probability margin threshold")
-    parser.add_argument("--history", type=int, default=8, help="Rolling window size for temporal smoothing")
-    parser.add_argument("--min_energy", type=float, default=30.0, help="Minimum texture energy threshold")
+    parser.add_argument("--threshold", type=float, default=0.48, help="Confidence threshold")
+    parser.add_argument("--margin", type=float, default=0.08, help="Probability margin threshold")
+    parser.add_argument("--history", type=int, default=5, help="Rolling window size for temporal smoothing")
+    parser.add_argument("--min_energy", type=float, default=6.0, help="Minimum texture energy threshold")
     parser.add_argument("--captures", type=str, default="captures", help="Snapshots directory")
     args = parser.parse_args()
 
